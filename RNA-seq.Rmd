@@ -1,0 +1,276 @@
+---
+title: "RNA-seq experiment"
+author: "Francesco Gastaldello"
+date: "21 July 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+Get *SpikeNorm* from GithHub private repository and preparare all necessary libraries:
+
+```{r message=F}
+require(SpikeNorm) #privately own package, every rights belong to the Data Analysis Group (http://www.compbio.dundee.ac.uk/dag.html)
+require(tximport)
+require(rhdf5)
+require(edgeR)
+```
+
+Import data from SpikeNorm package and university cluster, preview the data and clean it accordingly.
+```{r message=F}
+data("exprsYeast")
+data("factsYeast")
+
+## Preview data
+head(exprsYeast)
+factsYeast
+
+## strip out zero count genes in all samples
+geneCounts <- exprsYeast[rowSums(exprsYeast)>0,]
+
+#Import and prepare Salmon and Kallisto data
+DIR<-'Z:/kallisto_test/out'
+FILES <- file.path(DIR,c(paste0("output_Snf2-",1:6),paste0("output_WT",1:6)),"abundance.h5")
+names(FILES) <- paste0("sample",1:12)
+txk <- tximport(FILES,type="kallisto",txOut =T)
+head(txk$counts)
+
+DIR <- 'Z:/salmon_test/out'
+FILES <- file.path(DIR,c(paste0("output_Snf2-",1:6),paste0("output_WT",1:6)),"quant.sf")
+names(FILES) <- paste0("sample",1:12)
+txs <- tximport(FILES,type="salmon",txOut =T,dropInfReps=TRUE) #no inferential replicates (bootstrap)
+head(txs$counts)
+
+STARgc <- read.csv('Z:/STAR_test/STARgenecounts.tsv',sep="\t",header=TRUE)
+rownames(STARgc) <- STARgc$GeneName
+STARgc$GeneName <- NULL
+colnames(STARgc) <- c(paste0("Snf2_",1:6),paste0("WT",1:6))
+```
+
+Prepare DGE objects for all the tools used:
+
+```{r}
+d <- DGEList(geneCounts,group=factsYeast[names(exprsYeast), "condition"])
+dgList_kallisto <- DGEList(counts=txk$counts,genes = rownames(txk$counts))
+dgList_salmon <- DGEList(counts=txs$counts,genes = rownames(txs$counts))
+dgList_STAR <- DGEList(counts = STARgc,genes = rownames(STARgc))
+
+#Preparation and estimation of general linear model for the two datasets
+sampleType <- c(rep("SNF2",6),rep("WT",6))
+```
+
+## Spike-ins part
+
+Isolate spike-ins from EdgeR/Salmon/Kallisto/STAR datasets:
+
+```{r}
+colnames(d) <- paste0("sample",c(7:12,1:6))
+d$counts <- d$counts[,c(7:12,1:6)]
+spikes_TH <- cpm(d)[grep("^ERCC",rownames(d$counts)),]
+spikes_kallisto <- cpm(dgList_kallisto)[grep("^ERCC",rownames(dgList_kallisto$counts)),]
+spikes_salmon <- cpm(dgList_salmon)[grep("^ERCC",rownames(dgList_salmon$counts)),]
+spikes_STAR <- cpm(dgList_STAR)[grep("^ERCC",rownames(dgList_STAR$counts)),]
+```
+
+Plot distribution of log10 count:
+
+```{r warning=F, fig.height=14, fig.width=16}
+par(mfrow=c(2,2))
+boxplot(log10(spikes_TH),main="TopHat")
+boxplot(log10(spikes_kallisto),main="kallisto")
+boxplot(log10(spikes_salmon),main="salmon")
+boxplot(log10(spikes_STAR),main="STAR")
+```
+```{r echo=F}
+par(mfrow=c(1,1))
+```
+
+Compare medians by samples and by datasets:
+
+```{r}
+se <- function(x) sqrt(var(x)/length(x))
+avgs_TH <- apply(spikes_TH,2,mean)
+se_TH <- apply(spikes_TH,2,se)
+med_TH <- apply(spikes_TH,2,median)
+avgs_kallisto <- apply(spikes_kallisto,2,mean)
+se_kallisto <- apply(spikes_kallisto,2,se)
+med_kallisto <- apply(spikes_kallisto,2,median)
+avgs_salmon <- apply(spikes_salmon,2,mean)
+se_salmon <- apply(spikes_salmon,2,se)
+med_salmon <- apply(spikes_salmon,2,median)
+avgs_STAR <- apply(spikes_STAR,2,mean)
+se_STAR <- apply(spikes_STAR,2,se)
+med_STAR <- apply(spikes_STAR,2,median)
+
+plot(med_TH,type="l",ylim=c(.5,5.5),xlab="Sample",ylab="Median")
+arrows(1:ncol(spikes_TH),avgs_TH-se_TH,1:ncol(spikes_TH),avgs_TH+se_TH,length = .05,angle=90,code=3)
+lines(med_kallisto,ylim=c(.5,5.5),col="red")
+arrows(med_kallisto,avgs_kallisto-se_kallisto,med_kallisto,avgs_kallisto+se_kallisto,length = .05,angle=90,code=3)
+lines(med_salmon,ylim=c(.5,5.5),col="green")
+arrows(med_salmon,avgs_salmon-se_salmon,med_salmon,avgs_salmon+se_salmon,length = .05,angle=90,code=3)
+lines(med_STAR,ylim=c(.5,5.5),col="purple")
+arrows(med_STAR,avgs_STAR-se_STAR,med_STAR,avgs_STAR+se_STAR,length = .05,angle=90,code=3)
+legend("topright",legend=c("TopHat","Kallisto","Salmon","STAR"),lty=c(1,1,1,1),lwd=c(2.5,2.5,2.5,2.5),col=c("black","red","green","purple"))
+```
+
+## Samples part
+
+Samples isolation in TH/Salmon/Kallisto/STAR
+
+```{r warning=F, fig.height=14, fig.width=16}
+samples_TH <- cpm(d)[!grepl("^ERCC",rownames(d$counts)),]
+samples_kallisto <- cpm(dgList_kallisto)[!grepl("^ERCC",rownames(dgList_kallisto$counts)),]
+samples_salmon <- cpm(dgList_salmon)[!grepl("^ERCC",rownames(dgList_salmon$counts)),]
+samples_STAR <- cpm(dgList_STAR)[!grepl("^ERCC",rownames(dgList_STAR$counts)),]
+
+#Plot distribution of log10 count
+par(mfrow=c(2,2))
+boxplot(log10(samples_TH[,c(1,3,5,2,4,6,7,9,11,8,10,12)]),main="TopHat")
+boxplot(log10(samples_kallisto[,c(1,3,5,2,4,6,7,9,11,8,10,12)]),ylim=c(-2,5),main="kallisto")
+boxplot(log10(samples_salmon[,c(1,3,5,2,4,6,7,9,11,8,10,12)]),ylim=c(-2,5),main="salmon")
+boxplot(log10(samples_STAR[,c(1,3,5,2,4,6,7,9,11,8,10,12)]),ylim=c(-2,5),main="STAR")
+```
+```{r echo=F}
+par(mfrow=c(1,1))
+```
+
+## Spikenorm analysis workflow
+
+Prepare datasets with gene lengths:
+
+```{r}
+gene.length <- read.csv(file = "./gene_length.csv")
+gene.length$X <- NULL
+spike.length <- read.csv(file = "./ERCC_lengths.tsv",sep="\t")
+lengths <- rbind(gene.length,spike.length)
+rownames(lengths) <- lengths$id
+lengths$id <- NULL
+lengths <- as.matrix(lengths)
+```
+
+Let's start with the TopHat dataset: 
+
+```{r message=F}
+res <- augDGEList(cpm(geneCounts), sampleData = factsYeast[colnames(geneCounts),], geneSeqs = lengths[rownames(geneCounts),])
+res <- calcSpikeNorm(res, treat = "condition")
+res
+
+par(mfrow=c(1,2))
+plotMixFits(res)
+plotMixFits(res, ntype='mix')
+```
+```{r echo=F}
+par(mfrow=c(1,1))
+```
+Use the SpikeNorm normalisation factors for edgeR
+
+```{r}
+res <- setNormFactors(res, ntype='sampleID')
+
+design = model.matrix(~sampleType)
+y = estimateGLMCommonDisp(res, design)
+y = estimateGLMTrendedDisp(y, design)
+y = estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y,design)
+lrt <- glmLRT(fit)
+topTags(lrt)
+```
+Let's do Kallisto datasets:
+
+```{r message=F}
+colnames(dgList_kallisto$counts)<-c(paste0("WT_",1:6),paste0("Snf2_",1:6))
+resK <- augDGEList(as.data.frame(dgList_kallisto$counts), sampleData = factsYeast[colnames(as.data.frame(dgList_kallisto$counts)),], geneSeqs = lengths[rownames(as.data.frame(dgList_kallisto$counts)),])
+resK <- calcSpikeNorm(resK, treat = "condition")
+resK
+
+par(mfrow=c(1,2))
+plotMixFits(resK)
+plotMixFits(resK, ntype='mix')
+resK <- setNormFactors(resK, ntype='sampleID')
+```
+```{r echo=F}
+par(mfrow=c(1,1))
+```
+```{r}
+sampleType<-c(rep("WT",6),rep("SNF2",6))
+design = model.matrix(~sampleType)
+yK = estimateGLMCommonDisp(resK, design)
+yK = estimateGLMTrendedDisp(yK, design)
+yK = estimateGLMTagwiseDisp(yK, design)
+fitK <- glmFit(yK,design)
+lrtK <- glmLRT(fitK)
+topTags(lrtK)
+```
+
+Let's do Salmon dataset
+```{r message=F}
+colnames(dgList_salmon$counts)<-c(paste0("WT_",1:6),paste0("Snf2_",1:6))
+resS <- augDGEList(as.data.frame(dgList_salmon$counts), sampleData = factsYeast[colnames(as.data.frame(dgList_salmon$counts)),], geneSeqs = lengths[rownames(as.data.frame(dgList_salmon$counts)),])
+resS <- calcSpikeNorm(resS, treat = "condition")
+resS
+
+par(mfrow=c(1,2))
+plotMixFits(resS)
+plotMixFits(resS, ntype='mix')
+```
+```{r echo=F}
+par(mfrow=c(1,1))
+```
+```{r}
+resS <- setNormFactors(resS, ntype='sampleID')
+
+sampleType<-c(rep("WT",6),rep("SNF2",6))
+design = model.matrix(~sampleType)
+yS = estimateGLMCommonDisp(resS, design)
+yS = estimateGLMTrendedDisp(yS, design)
+yS = estimateGLMTagwiseDisp(yS, design)
+fitS <- glmFit(yS,design)
+lrtS <- glmLRT(fitS)
+topTags(lrtS)
+```
+
+Let's do STAR dataset
+
+```{r message=F}
+colnames(dgList_STAR$counts)<-c(paste0("Snf2_",1:6),paste0("WT_",1:6))
+resST <- augDGEList(as.data.frame(dgList_STAR$counts), sampleData = factsYeast[colnames(as.data.frame(dgList_STAR$counts)),], geneSeqs = lengths[rownames(as.data.frame(dgList_STAR$counts)),])
+resST <- calcSpikeNorm(resST, treat = "condition")
+resST
+
+par(mfrow=c(1,2))
+plotMixFits(resST)
+plotMixFits(resST, ntype='mix')
+```
+```{r echo=F}
+par(mfrow=c(1,1))
+```
+```{r}
+resST <- setNormFactors(resST, ntype='sampleID')
+
+sampleType<-c(rep("WT",6),rep("SNF2",6))
+design = model.matrix(~sampleType)
+yST = estimateGLMCommonDisp(resST, design)
+yST = estimateGLMTrendedDisp(yST, design)
+yST = estimateGLMTagwiseDisp(yST, design)
+fitST <- glmFit(yST,design)
+lrtST <- glmLRT(fitST)
+topTags(lrtST)
+```
+## Further analysis
+
+P-values vs Fold Change
+```{r}
+par(mfrow=c(2,2))
+plot(lrt$table$PValue,lrt$table$logFC,xlab="P-Values",ylab="Fold Change",main="TopHat")
+plot(lrtK$table$PValue,lrtK$table$logFC,xlab="P-Values",ylab="Fold Change",main="Kallisto")
+plot(lrtS$table$PValue,lrtS$table$logFC,xlab="P-Values",ylab="Fold Change",main="Salmon")
+plot(lrtST$table$PValue,lrtST$table$logFC,xlab="P-Values",ylab="Fold Change",main="STAR")
+```
+```{r echo=F}
+par(mfrow=c(1,1))
+```
