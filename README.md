@@ -1,35 +1,46 @@
 # rna_seq_experiment
 This pages is for documenting the workflow that I've developed to compare [Kallisto](https://pachterlab.github.io/kallisto/about.html), [Salmon](https://combine-lab.github.io/salmon/), [TopHat](https://ccb.jhu.edu/software/tophat/index.shtml) and [STAR aligner](https://github.com/alexdobin/STAR).
 
+This was the first project that I've made for the Data Analysis Group as a part-time member at the University of Dundee.
+
 Raw data
 ========
-The raw data comes from a [HT RNA-sequencing experiment](https://doi.org/10.1093/bioinformatics/btv425) run on S.cerevisiae with 7 technical replicates and 48 biological ones (336 in total) under two condition (WT and Snf2).
+The raw data comes from a [HT RNA-sequencing experiment](https://doi.org/10.1093/bioinformatics/btv425) run on S.cerevisiae with 7 technical replicates and 48 biological ones (336 in total) under two conditions (WT and Snf2).
+
 A sample mapping is provided [here](https://figshare.com/articles/Metadata_for_a_highly_replicated_two_condition_yeast_RNAseq_experiment_/1416210).
 
 Alignment
 =========
-Kallisto, Salmon and STAR jobs were sent to the School of Life Sciences cluster. All fastq files are stored in a filesystem close to this:
+
+Kallisto, Salmon and STAR jobs were sent to the School of Life Sciences cluster. All FASTQ files were stored on it in a filesystem that resemble the schema below:
+
 ```
 ~/dyeswap_data
 	|---------/Snf2
-			  |----/Snf2-1
+		  |----/Snf2-1
 	          |----/Snf2-2
 	          |----/Snf2-3
 	          |----/Snf2-4
 	          |----/Snf2-5
 	          |----/Snf2-6
 	|---------/WT
-			  |----/WT1
-			  |----/WT2
-			  |----/WT3
-			  |----/WT4
-			  |----/WT5
-		      |----/WT6
+		  |----/WT1
+		  |----/WT2
+		  |----/WT3
+		  |----/WT4
+		  |----/WT5
+                  |----/WT6
 ```
-each tool might need an index (Kallisto and Salmon) or a database (STAR) to work. I've retrieved the latest genome build from Ensembl and created the indexes for Kallisto and Salmon. The STAR database was already built and made available to the cluster user at the School of Life Science.
-I developed bash scripts to run the applications on the cluster in Unix script.
+
+Each tool need an index (Kallisto and Salmon) or a database (STAR) to correctly map the reads. The latest genome build was retrieved from Ensembl and used to create indexes for Kallisto and Salmon. 
+
+The STAR database was already built and made available on the cluster at the School of Life Science.
+
+Different Bash scripts were developed to run the applications on the cluster.
+
 For Kallisto:
-```
+
+```bash
 #!/bin/bash -l
 
 for i in {1..6}
@@ -48,7 +59,8 @@ done
 ```
 
 For Salmon:
-```
+
+```bash
 #!/bin/bash -l
 
 for i in {1..6}
@@ -67,7 +79,8 @@ done
 ```
 
 For STAR:
-```
+
+```bash
 #!/bin/bash -l
 
 mkdir /homes/fgastaldello/STAR_test/out
@@ -96,13 +109,18 @@ done
 Data analysis
 =============
 
-A simple data analysis was performed in [R language](https://www.r-project.org) using different packages. One of them is SpikeNorm, a private package developed within the Data Analysis Group. The package is developed by Nick Schurch and Pieta Schofield and it is used 
-for processing RNA-deq data enriched wirh ERRC synthetic spike-ins transcripts.
+A simple data analysis was performed in [R language](https://www.r-project.org) using SpikeNorm and [edgeR](https://bioconductor.org/packages/release/bioc/html/edgeR.html). The former is a private package developed within the Data Analysis Group. It is developed by Nick Schurch and Pieta Schofield and it is used 
+for processing RNA-seq data enriched with ERRC synthetic spike-ins transcripts.
 
-The workflow is available in the .RMd file here. 
+The workflow is available in the `RNA-seq.Rmd` file in this repository. 
 
 Conclusions
 ===========
-This simple process is not perfect, but it was my frst attempt in getting my hand dirty with RNA-seq experiement. The only conclusions that I can give are from a personal point of view.
-Since I've never done something like this before, I have to say that user-friendliness in Kallisto and SAlmon is way more evident that in STAR. The original data was mapped with TopHat since it was considered a gold standard at that time.
-I personaly found Kallisto and SAlmon quicker and easy to use, in both setup and running time. In comparison STAR aligner has been more difficult to operate and slower to compute the mapping.
+
+This simple process is not perfect, but it was my first attempt in getting my hand dirty with RNA-seq experiement. The only conclusions that I can give are from a personal point of view.
+
+Since I've never done something like this before, I have to say that user-friendliness in Kallisto and Salmon is greater than in STAR. 
+
+The original data was mapped with TopHat, since it was considered a gold standard at that time. Personally, I found Kallisto and Salmon to be quicker and easier to use, in both setup and running time. 
+In comparison STAR aligner has been more difficult to operate and slower to compute the mapping.
+
